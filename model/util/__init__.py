@@ -1,7 +1,11 @@
+import pandas as pd
 import torch
 
 import numpy as np
+import torch.nn as nn
+import torch.nn.functional as F
 
+from torch.autograd import Variable
 from scipy.signal import butter, lfilter
 from torch.utils.data import Dataset
 
@@ -84,3 +88,32 @@ class EarlyStopping(object):
         else:
             self.best_score = score
             self.counter = 0
+
+
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=.25, gamma=2):
+        super(FocalLoss, self).__init__()
+        self.alpha = torch.tensor([alpha, 1-alpha]).cuda()
+        self.gamma = gamma
+
+    def forward(self, inputs, targets):
+        BCE_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
+        targets = targets.type(torch.long)
+        at = self.alpha.gather(0, targets.data.view(-1))
+        pt = torch.exp(-BCE_loss)
+
+        if targets.shape[-1] != 1:
+            at = at.reshape(targets.shape[0], targets.shape[1])
+        F_loss = at*(1-pt)**self.gamma * BCE_loss
+        return F_loss.mean()
+
+
+# class ImbalancedSampler(torch.utils.data.sampler.Sampler):
+#     def __init__(self, dataset, indices=None, num_samples=None):
+#         self.indices = list(range(len(dataset))) if indices is None else indices
+#         self.num_samples = len(self.indices) if num_samples is None else num_samples
+#
+#         df = pd.DataFrame()
+#         df["label"] = dataset.total_y[:, 0]
+
+

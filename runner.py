@@ -7,6 +7,7 @@ import numpy as np
 from config import EVENT_ENCODING_VALUES, CHANNEL_LENGTH, SLEEP_STAGE_ENCODING_VALUES
 from data_load import *
 from datetime import datetime
+from torchsampler import ImbalancedDatasetSampler
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
@@ -26,6 +27,11 @@ def clear_console():
 
 if __name__ == "__main__":
     clear_console()
+
+    try:
+        open('shuffled.pkl', 'rb')
+    except:
+        make_shuffled_data()
 
     # get model arguments
     parser = argparse.ArgumentParser()
@@ -48,7 +54,7 @@ if __name__ == "__main__":
     parser.add_argument('--rnn_dropout', type=float, default=0.5)
     parser.add_argument('--classes', type=int, default=len(EVENT_ENCODING_VALUES))
     parser.add_argument('--stage_classes', type=int, default=len(SLEEP_STAGE_ENCODING_VALUES))
-    parser.add_argument('--patience', type=int, default=200)
+    parser.add_argument('--patience', type=int, default=300)
 
     args = vars(parser.parse_args())
 
@@ -64,11 +70,16 @@ if __name__ == "__main__":
 
         train_dir, valid_dir, test_dir = get_train_test_dir()
 
-        train_dataset = ISRUCDataset(data_dir=train_dir)
-        valid_dataset = ISRUCDataset(data_dir=valid_dir)
-        test_dataset = ISRUCDataset(data_dir=test_dir)
+        # train_dataset = ISRUCDataset(data_dir=train_dir)
+        # valid_dataset = ISRUCDataset(data_dir=valid_dir)
+        # test_dataset = ISRUCDataset(data_dir=test_dir)
+
+        train_dataset = ISRUCDataset2(mode="train")
+        valid_dataset = ISRUCDataset2(mode="valid")
+        test_dataset = ISRUCDataset2(mode="test")
 
         train_dataloader = DataLoader(train_dataset, batch_size=args.get('batch'), shuffle=True)
+        # train_dataloader = DataLoader(train_dataset, sampler=ImbalancedDatasetSampler(train_dataset, labels=train_dataset.total_y[:, 0]), batch_size=args.get('batch'))
 
         writer_path = f'runs/{model}/{now}_fold{i}'
         tensorboard_writer = SummaryWriter(writer_path)

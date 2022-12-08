@@ -8,7 +8,9 @@ import numpy as np
 
 from typing import Tuple, Sequence, Callable
 from torchvision import transforms
+from sklearn.utils import shuffle
 from sklearn.preprocessing import MultiLabelBinarizer
+from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset, DataLoader
 from config import CHANNEL_LENGTH
 
@@ -110,9 +112,6 @@ class ISRUCDataset(Dataset):
                 signal_flag = False
 
                 for i, eeg in enumerate(config.EEG):
-                    if eeg == 'X2' and eeg not in signals:
-                        print('ECG 어디갔누')
-
                     if eeg not in signals:
                         continue
 
@@ -155,8 +154,74 @@ class ISRUCDataset(Dataset):
         label = torch.tensor(self.total_y[idx], dtype=torch.int32)
         return X, label
 
+    def get_labels(self):
+        return self.total_y
+
+
+def make_shuffled_data():
+    dir_1, dir_2, dir_3 = get_train_test_dir()
+    total_dir = dir_1 + dir_2 + dir_3
+
+    x_, y_ = ISRUCDataset.data_loader(total_dir)
+    x_, y_ = shuffle(x_, y_, random_state=0)
+
+    train_x, test_x, train_y, test_y = train_test_split(x_, y_, test_size=0.2, random_state=42)
+    valid_x, test_x, valid_y, test_y = train_test_split(test_x, test_y, test_size=0.5, random_state=42)
+
+    with open('shuffled.pkl', 'wb') as f:
+        shuffled = {
+            'train_x': train_x,
+            'test_x': test_x,
+            'valid_x': valid_x,
+            'train_y': train_y,
+            'test_y': test_y,
+            'valid_y': valid_y
+        }
+        pickle.dump(shuffled, f)
+
+    f.close()
+
+
+def load_shuffled_data(mode="train"):
+    with open('shuffled.pkl', 'rb') as f:
+        shuffled = pickle.load(f)
+        train_x, test_x, valid_x = shuffled['train_x'], shuffled['test_x'], shuffled['valid_x']
+        train_y, test_y, valid_y = shuffled['train_y'], shuffled['test_y'], shuffled['valid_y']
+
+    f.close()
+
+    if mode == "train":
+        x = train_x
+        y = train_y
+
+    elif mode == "test":
+        x = test_x
+        y = test_y
+
+    else:
+        x = valid_x
+        y = valid_y
+
+    return x,y
+
+
+class ISRUCDataset2(Dataset):
+    def __init__(self, mode="train"):
+        self.total_x, self.total_y = load_shuffled_data(mode)
+
+    def __len__(self):
+        size = self.total_x.shape[0]
+        return size
+
+    def __getitem__(self, idx):
+        X = torch.tensor(self.total_x[idx], dtype=torch.float32)
+        label = torch.tensor(self.total_y[idx], dtype=torch.int32)
+
+        return X, label
+
 
 if __name__ == "__main__":
+    load_shuffled_data(mode="train")
     train_dir, valid_dir, test_dir = get_train_test_dir()
     isruc = ISRUCDataset(data_dir=train_dir)
     dataloader = DataLoader(isruc, batch_size=32, shuffle=True)

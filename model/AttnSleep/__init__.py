@@ -8,7 +8,8 @@ import torch.nn as nn
 import torch.nn.functional as f
 
 from copy import deepcopy
-from model.util import EarlyStopping
+from sklearn.metrics import f1_score
+from model.util import EarlyStopping, FocalLoss
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
@@ -57,7 +58,8 @@ class AttnSleep:
         self.model.to(device=self.device)
 
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=kwargs.get('lr'))
-        self.criterion = torch.nn.BCELoss()
+        # self.criterion = torch.nn.BCELoss()
+        self.criterion = FocalLoss(gamma=2.0)
 
         self.model_state_dict = self.model.state_dict()
         self.optimizer_state_dict = self.optimizer.state_dict()
@@ -79,9 +81,9 @@ class AttnSleep:
                 apnea, stage = train_y[:, 0], train_y[:, 1:]
 
                 # apnea
-                t_apnea_accuracy, t_apnea_loss = self.get_accuracy_loss(preds=train_out_apnea, label=apnea)
+                t_apnea_accuracy, t_apnea_loss, t_apnea_f1 = self.get_accuracy_loss(preds=train_out_apnea, label=apnea)
                 # sleep stage
-                t_stage_accuracy, t_stage_loss = self.get_accuracy_loss(preds=train_out_stage, label=stage)
+                t_stage_accuracy, t_stage_loss, t_stage_f1 = self.get_accuracy_loss(preds=train_out_stage, label=stage)
 
                 t_loss = t_apnea_loss + t_stage_loss
                 self.optimizer.zero_grad()
@@ -105,43 +107,56 @@ class AttnSleep:
                         val_apnea, val_stage = val_y[:, 0], val_y[:, 1:]
                         test_apnea, test_stage = test_y[:, 0], test_y[:, 1:]
 
-                        val_apnea_accuracy, val_apnea_loss = self.get_accuracy_loss(preds=v_out_apnea, label=val_apnea)
-                        val_stage_accuracy, val_stage_loss = self.get_accuracy_loss(preds=v_out_stage, label=val_stage)
+                        val_apnea_accuracy, val_apnea_loss, val_apnea_f1 = self.get_accuracy_loss(preds=v_out_apnea, label=val_apnea)
+                        val_stage_accuracy, val_stage_loss, val_stage_f1 = self.get_accuracy_loss(preds=v_out_stage, label=val_stage)
 
                         val_loss = val_apnea_loss + val_stage_loss
 
-                        test_apnea_accuracy, test_apnea_loss = self.get_accuracy_loss(preds=test_out_apnea, label=test_apnea)
-                        test_stage_accuracy, test_stage_loss = self.get_accuracy_loss(preds=test_out_stage, label=test_stage)
+                        test_apnea_accuracy, test_apnea_loss, test_apnea_f1 = self.get_accuracy_loss(preds=test_out_apnea, label=test_apnea)
+                        test_stage_accuracy, test_stage_loss, test_stage_f1 = self.get_accuracy_loss(preds=test_out_stage, label=test_stage)
 
                         test_loss = test_apnea_loss + test_stage_loss
 
                         writer.add_scalar('train/loss', t_loss.item(), total_iter)
                         writer.add_scalar('train/accuracy/apnea', t_apnea_accuracy, total_iter)
                         writer.add_scalar('train/accuracy/stage', t_stage_accuracy, total_iter)
+                        writer.add_scalar('train/f1/apnea', t_apnea_f1, total_iter)
+                        writer.add_scalar('train/f1/stage', t_stage_f1, total_iter)
 
                         writer.add_scalar('validation/loss', val_loss.item(), total_iter)
                         writer.add_scalar('validation/accuracy/apnea', val_apnea_accuracy, total_iter)
                         writer.add_scalar('validation/accuracy/stage', val_stage_accuracy, total_iter)
+                        writer.add_scalar('validation/f1/apnea', val_apnea_f1, total_iter)
+                        writer.add_scalar('validation/f1/stage', val_stage_f1, total_iter)
 
                         writer.add_scalar('test/loss', test_loss.item(), total_iter)
                         writer.add_scalar('test/accuracy/apnea', test_apnea_accuracy, total_iter)
                         writer.add_scalar('test/accuracy/stage', test_stage_accuracy, total_iter)
+                        writer.add_scalar('test/f1/apnea', test_apnea_f1, total_iter)
+                        writer.add_scalar('test/f1/stage', test_stage_f1, total_iter)
 
                         print(
                             '[Epoch] : {0:2d}  '
                             '[Iteration] : {1:4d}  '
                             '[Train Apnea Acc] : {2:.4f}  '
                             '[Train Stage Acc] : {3:.4f}  '
-                            '[Train Loss] : {4:.4f}    '
-                            '[Val Apnea Acc] : {5:.4f}    '
-                            '[Val Stage Acc] : {6:.4f}    '
-                            '[Val Loss] : {7:.4f}    '
-                            '[Test Apnea Acc] : {8:.4f}    '
-                            '[Test Stage Acc] : {9:.4f}    '
-                            '[Test Loss]: {10:.4f}    '.format(
-                                epoch, i, t_apnea_accuracy, t_stage_accuracy, t_loss.item(),
-                                val_apnea_accuracy, val_stage_accuracy, val_loss.item(), test_apnea_accuracy, test_stage_accuracy,
-                                test_loss.item()
+                            '[Train Apnea f1] : {4:.4f}  '
+                            '[Train Stage f1] : {5:.4f}  '
+                            '[Train Loss] : {6:.4f}    '
+                            '[Val Apnea Acc] : {7:.4f}    '
+                            '[Val Stage Acc] : {8:.4f}    '
+                            '[Val Apnea f1] : {9:.4f}    '
+                            '[Val Stage f1] : {10:.4f}    '
+                            '[Val Loss] : {11:.4f}    '
+                            '[Test Apnea Acc] : {12:.4f}    '
+                            '[Test Stage Acc] : {13:.4f}    '
+                            '[Test Apnea f1] : {14:.4f}    '
+                            '[Test Stage f1] : {15:.4f}    '
+                            '[Test Loss]: {16:.4f}    '.format(
+                                epoch, i,
+                                t_apnea_accuracy, t_stage_accuracy, t_apnea_f1, t_stage_f1, t_loss.item(),
+                                val_apnea_accuracy, val_stage_accuracy, val_apnea_f1, val_stage_f1, val_loss.item(),
+                                test_apnea_accuracy, test_stage_accuracy, test_apnea_f1, test_stage_f1, test_loss.item()
                             )
                         )
 
@@ -166,21 +181,23 @@ class AttnSleep:
 
     def get_accuracy_loss(self, preds, label):
         label = label.float()
-        # label.requires_grad_(True)
+
         # apnea
         if preds.shape[1] == 1:
             label = label.reshape(label.shape[0], 1)
             loss = self.criterion(preds, label)
             output = preds > 0.5
             acc = torch.mean(torch.eq(label, output.to(torch.int32)).to(dtype=torch.float32))
+            f1 = f1_score(label.reshape(label.shape[0]).tolist(), output.reshape(output.shape[0]).to(torch.int32).cpu().tolist(), average='macro')
 
         else:
             loss = self.criterion(preds, label)
             label = torch.argmax(label, dim=-1)
             output = torch.argmax(preds, dim=-1)
             acc = torch.mean(torch.eq(label, output).to(dtype=torch.float32))
+            f1 = f1_score(label.tolist(), output.cpu().tolist(), average='macro')
 
-        return acc, loss
+        return acc, loss, f1
 
     def save_model(self, save_dir, epoch):
         torch.save({
@@ -190,6 +207,7 @@ class AttnSleep:
             'batch_size': self.batch_size,
             'parameter': self.model_args
         }, os.path.join(save_dir))
+
 
 class SELayer(nn.Module):
     def __init__(self, channel, reduction=16):
